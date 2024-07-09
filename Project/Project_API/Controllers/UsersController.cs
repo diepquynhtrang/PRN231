@@ -5,6 +5,10 @@ using Project_API.Models.DTO;
 using System.Data;
 using System;
 using System.Collections.Generic;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 
 namespace Project_API.Controllers
 {
@@ -14,14 +18,18 @@ namespace Project_API.Controllers
     {
         PRN231_Group10_SE1701Context context = new PRN231_Group10_SE1701Context();
 
-        [HttpPost("login")]
-        public IActionResult Login(string gmail, string password)
+        public class LoginModel
         {
-            //Input: string gmail, string password
+            public string Gmail { get; set; }
+            public string Password { get; set; }
+        }
+
+        [HttpPost("login")]
+        public IActionResult Login([FromBody] LoginModel model)
+        {
             try
             {
-
-                User? user = context.Users.FirstOrDefault(x => x.Gmail == gmail.Trim().ToLower());
+                var user = context.Users.FirstOrDefault(x => x.Gmail == model.Gmail.Trim().ToLower());
                 if (user == null)
                 {
                     return NotFound("Account does not exist");
@@ -32,57 +40,163 @@ namespace Project_API.Controllers
                     return BadRequest("Account disabled. Please contact manager.");
                 }
 
-                user = context.Users.FirstOrDefault(x => x.Gmail == gmail.Trim().ToLower() && x.Password == password.Trim());
-                if (user == null)
+                if (user.Password != model.Password.Trim())
                 {
                     return NotFound("Incorrect password");
                 }
 
-                return Ok(user.Id);
+                var token = GenerateJwtToken(user);
+
+                return Ok(new { token, user });
             }
             catch (Exception ex)
             {
                 return BadRequest(ex.Message);
             }
-
         }
 
-        [HttpPost("create")]
-        public IActionResult Create(UserDTO userDTO, string user_id)
+        private string GenerateJwtToken(User user)
         {
+            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("YourSecretKeyHere")); // Thay thế bằng khóa bí mật của bạn
+            var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
+            var claims = new[]
+            {
+    new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+    new Claim(JwtRegisteredClaimNames.Email, user.Gmail),
+    new Claim("role", user.Role.ToString())
+};
+
+            var token = new JwtSecurityToken(
+                issuer: "YourIssuer",
+                audience: "YourAudience",
+                claims: claims,
+                expires: DateTime.Now.AddHours(3), // Token hết hạn sau 3 giờ
+                signingCredentials: credentials
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+
+        [HttpPost("create")]
+        public IActionResult Create([FromBody] UserDTOO userDTO, [FromQuery] string user_id)
+        {
             try
             {
-                //Input: string fullname, string phone, string gmail, string password,
-                //string address, int role
-
-                User? u = context.Users.FirstOrDefault(x => x.Id == Int32.Parse(user_id.Trim()));
-                if (u.Role != 0 || u.Role != 1)
+                if (!ModelState.IsValid)
                 {
-                    return BadRequest("You do not have access");
+                    return BadRequest(ModelState);
                 }
-                User user = new User();
-                user.Fullname = userDTO.Fullname;
-                user.Phone = userDTO.Phone;
-                user.Gmail = userDTO.Gmail;
-                user.Password = userDTO.Password;
-                user.Address = userDTO.Address;
-                user.Role = userDTO.Role;
-                user.CreatedTime = DateTime.Now;
-                user.Status = 1;
+
+                User? currentUser = context.Users.FirstOrDefault(x => x.Id == Int32.Parse(user_id.Trim()));
+                if (currentUser == null || (currentUser.Role != 0 && currentUser.Role != 1))
+                {
+                    return BadRequest("You do not have access to create users");
+                }
+
+                User user = new User
+                {
+                    Fullname = userDTO.Fullname,
+                    Phone = userDTO.Phone,
+                    Gmail = userDTO.Gmail,
+                    Password = userDTO.Password,
+                    Address = userDTO.Address,
+                    Role = userDTO.Role,
+                    CreatedTime = DateTime.Now,
+                    Status = 1
+                };
+
                 context.Users.Add(user);
                 context.SaveChanges();
 
                 return Ok(user);
-
-
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest($"An error occurred: {ex.Message}");
             }
-
         }
+
+        public class UserDTOO
+        {
+            public string Fullname { get; set; }
+            public string Phone { get; set; }
+            public string Gmail { get; set; }
+            public string Password { get; set; }
+            public string Address { get; set; }
+            public int Role { get; set; }
+        }
+
+        //[HttpPost("login")]
+        //public IActionResult Login(string gmail, string password)
+        //{
+        //    //Input: string gmail, string password
+        //    try
+        //    {
+
+        //        User? user = context.Users.FirstOrDefault(x => x.Gmail == gmail.Trim().ToLower());
+        //        if (user == null)
+        //        {
+        //            return NotFound("Account does not exist");
+        //        }
+
+        //        if (user.Status == 0)
+        //        {
+        //            return BadRequest("Account disabled. Please contact manager.");
+        //        }
+
+        //        user = context.Users.FirstOrDefault(x => x.Gmail == gmail.Trim().ToLower() && x.Password == password.Trim());
+        //        if (user == null)
+        //        {
+        //            return NotFound("Incorrect password");
+        //        }
+
+        //        return Ok(user.Id);
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        return BadRequest(ex.Message);
+        //    }
+
+        //}
+
+        //[HttpPost("create")]
+        //public IActionResult Create(UserDTO userDTO, string user_id)
+        //{
+
+        //    try
+        //    {
+        //        //Input: string fullname, string phone, string gmail, string password,
+        //        //string address, int role
+
+        //        User? u = context.Users.FirstOrDefault(x => x.Id == Int32.Parse(user_id.Trim()));
+        //        if (u.Role != 0 || u.Role != 1)
+        //        {
+        //            return BadRequest("You do not have access");
+        //        }
+        //        User user = new User();
+        //        user.Fullname = userDTO.Fullname;
+        //        user.Phone = userDTO.Phone;
+        //        user.Gmail = userDTO.Gmail;
+        //        user.Password = userDTO.Password;
+        //        user.Address = userDTO.Address;
+        //        user.Role = userDTO.Role;
+        //        user.CreatedTime = DateTime.Now;
+        //        user.Status = 1;
+        //        context.Users.Add(user);
+        //        context.SaveChanges();
+
+        //        return Ok(user);
+
+
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        return BadRequest(ex.Message);
+        //    }
+
+        //}
 
         [HttpPost("getall")]
         public IActionResult GetAll(string user_id)
